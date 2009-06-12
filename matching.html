@@ -1,0 +1,325 @@
+<HEAD>
+<TITLE>
+Instructions for MSCC matching
+</TITLE>
+</HEAD>
+<BODY>
+<p>
+Here is a write-up for how I match the MSCC sequencing data and generate the number of counts.
+</p>
+<h2>
+Target library
+</h2>
+
+<p>
+Rather than blasting against the genome, I generate a list of all sequences I expect I could see. I can do this because I know all tags should be generated from a CCGG sequence and because most of the genome has been sequenced. (The parts that aren't are highly repetitive and presumably would generate tags matching known sequences considered to be non-unique.)
+</p>
+<p>
+To do this, start with a fasta-formated genome sequence data file. Each sequence header should start with a chromosome ID that contains no whitespace (eg. "chr1_random"). The following perl script can be used to generate a list of all target locations with flanking sequence and their locations:
+</p>
+<p>
+<A HREF=GetCutSites.txt>GetCutSites.pl</A>
+</p>
+<p>
+The resulting data will look something like this:
+</p>
+<pre>
+chr1    3004692 CCACACGATCTTAGGACCTCCAGTGGAACACAACTTCTGTTCCAATCTAATCGTGCAAGACCGGAGACAGCATTAAGGAAGCAGAAAACCAGCCTGACCAGGGTCACAAGTCCCTTCTGGATGG      1
+chr1    3005055 ATTTGCAGTGATGGCCGACTAGGCCATCTTTTGATACATATGCAGCTAGAGACAAGAGCTCCGGGGTACTAGTTAGTTCATATTGTTATTCCACCTATAGGGTTGCAGTTCCCATTAGCTCCTT      1
+chr1    3005766 CAGCTTCTGGCTATTATAAACAAGGCTGCTATGAACACAGTGGAGCATGTGTCCTTCTTACCGGTTGGGACATCTTCTGGATATATGCAAAGGAGAGGTATTGTGGGATCCTTAGGTTACTATG      1
+chr1    3006702 TGTCACTATACCAGTACCATGCAGTTTTGATCACAATTGCTCTGTAGTACAGTTTTAGGTCCGGCATAGTGATTCCACCAGAGGTTCTTTTATCCTTGAGAAGAGTTTTTGCTATCCTCGTTTT      1
+chr1    3010875 CAGAAACTGCTGGCCTCTGTATTCCACACCCTCACCCATGCAGCCTGCCCTCCTCAGAGTCCGGAACCAAGGTGGCTCCTGCGGAGCCTGAGGCAGAAACCTCTTGGGCCGGGTGGACCCCTGT      1
+chr1    3010923 CCTCCTCAGAGTCCGGAACCAAGGTGGCTCCTGCGGAGCCTGAGGCAGAAACCTCTTGGGCCGGGTGGACCCCTGTGCTCTCACCAGGAAGGTGGCCGGTTGTCTGTAGCCGAAAATGGCACCA      1
+chr1    3010958 GAGCCTGAGGCAGAAACCTCTTGGGCCGGGTGGACCCCTGTGCTCTCACCAGGAAGGTGGCCGGTTGTCTGTAGCCGAAAATGGCACCACCTCAGAAGCTCTGTGGCTCTTGCCTGTCCCAGAA      1
+chr1    3011026 CTGTAGCCGAAAATGGCACCACCTCAGAAGCTCTGTGGCTCTTGCCTGTCCCAGAAACCCCCGGCCCCTGCACTCCACACCCTCACCCGTGCAGCCTGCCCTCCGTGGAGTCCTGGAGCCAAGG      1
+chr1    3011093 CTGCACTCCACACCCTCACCCGTGCAGCCTGCCCTCCGTGGAGTCCTGGAGCCAAGGTGGCCGGTTGTCTCCCACGTGATCTTAAAACCACTAACCAGACAGCTCCATGCTCCTCAAAGAAGAC      1
+chr1    3016501 TGCCACCAAGATTTTGCTGAAAGGACACTGATATTGCTGTCTCTTGTGATGCTACGTATGCCGGTGCCTGGGAAACACAGAAAAATGGATGCTCACAGTCAGCTATTGGATGGAACACAGGGCC      1
+</pre>
+<p>
+The last column marks whether the target site was in repetitive DNA by checking if it was "repeat-masked" in the genome sequence data file (indicated by being lowercase). 1 if in repeat-masked (lowercase) sequence, 0 if not.
+</p>
+<p>
+Now we want to generate a list of all possible tags that could be generated. There are two major issues here:
+</p>
+<ol>
+<li>
+<p>
+In our library, the design placed the sequencing primer opposite to the target cut site, the expected tag sequences end (rather than begin) at the target site.
+</p>
+</li>
+<li>
+<p>
+Because Mme I has a wobble when it cuts (it cuts in 20 or 21 bp, about 50% time for each), two lists will be generated. In our Hpa II MSCC design these were 18 and 19 basepair variants. (This is 18/19 rather than 20/21 because two of the bases are always the same -- the "GG" in the CCGG site.)
+</p>
+</li>
+</ol>
+<p>
+To do this we use the file generated from the previous step and the following script:
+</p>
+<p>
+<A HREF=GetTags.txt>GetTags.pl</A>
+</p>
+<p>
+The resulting data will look something like this:
+</p>
+<pre>
+CAATCTAATCGTGCAAGA      chr1    3004692 -       18      1       NA
+GCTTCCTTAATGCTGTCT      chr1    3004692 +       18      1       NA
+CAGCTAGAGACAAGAGCT      chr1    3005055 -       18      1       NA
+TATGAACTAACTAGTACC      chr1    3005055 +       18      1       NA
+GAGCATGTGTCCTTCTTA      chr1    3005766 -       18      1       NA
+ATCCAGAAGATGTCCCAA      chr1    3005766 +       18      1       NA
+TGTAGTACAGTTTTAGGT      chr1    3006702 -       18      1       NA
+TCTGGTGGAATCACTATG      chr1    3006702 +       18      1       NA
+GCCTGCCCTCCTCAGAGT      chr1    3010875 -       18      1       NA
+GCAGGAGCCACCTTGGTT      chr1    3010875 +       18      1       NA
+</pre>
+<p>
+This shows the tag sequence, the chromosome ID, position, strand (upstream or downstream tag), tag length, if it's repeat-masked, and MmeI site presence. The last column, MmeI site presence, is "NA" if no conflicting MmeI site is found in the flanking sequence or, if one is detected, the distance in bp to the target site. This is recorded here because if there is an MmeI site in genomic sequence it could conflict with the tag construction and so sites with MmeI sites that are too close should be excluded in later analysis (although they are potentially generated and so should be in our set of potential matches).
+<p>
+Because we'll want to exclude analysis of sites too close to each other (and so they would interfere with each other) we want to add a column to the data indicating distance to the neighboring site. We did this with command line perl code like the following (note that this code assumes that the upstream sites precede the downstream sites in the input file):
+</p>
+<p>
+cat CCGG_tags_18 | perl -ne 'BEGIN {$dist = 1000;} @data = split; if ($data[3] eq "-") {if ($data[1] ne $olddata[1]) { if (@olddata) { print "@olddata[0..5] 1000 $data[6]\n";}; print "@data[0..5] 1000 $data[6]\n";} else {$dist = $data[2] - $olddata[2]; print "@olddata[0..5] $dist $data[6]\n@data[0..5] $dist $data[6]\n";} }; @olddata = @data; END {print "@olddata[0..5] 1000 $data[6]\n";}' &gt CCGG_tags_18_withdist
+</p>
+<p>
+This ends up looking like this:
+</p>
+<pre>
+CAATCTAATCGTGCAAGA chr1 3004692 - 18 1 1000 NA
+GCTTCCTTAATGCTGTCT chr1 3004692 + 18 1 363 NA
+CAGCTAGAGACAAGAGCT chr1 3005055 - 18 1 363 NA
+TATGAACTAACTAGTACC chr1 3005055 + 18 1 711 NA
+GAGCATGTGTCCTTCTTA chr1 3005766 - 18 1 711 NA
+ATCCAGAAGATGTCCCAA chr1 3005766 + 18 1 936 NA
+TGTAGTACAGTTTTAGGT chr1 3006702 - 18 1 936 NA
+TCTGGTGGAATCACTATG chr1 3006702 + 18 1 4173 NA
+GCCTGCCCTCCTCAGAGT chr1 3010875 - 18 1 4173 NA
+GCAGGAGCCACCTTGGTT chr1 3010875 + 18 1 48 NA
+</pre>
+<p>
+Since our later matching requires this file be alphabetically sorted, you can do this with a unix command:
+</p>
+<pre>
+sort CCGG_tags_18_withdist &gt CCGG_tags_18_withdist_alphasort
+</pre>
+<p>
+Which should get you something that looks like this:
+</p>
+<pre>
+AAAAAAAAAAAAAAAAAA chr10 62355617 + 18 0 1363 NA
+AAAAAAAAAAAAAAAAAA chr10 75423711 + 18 1 1459 NA
+AAAAAAAAAAAAAAAAAA chr11 107327557 - 18 1 593 NA
+AAAAAAAAAAAAAAAAAA chr11 118896086 - 18 0 73 NA
+AAAAAAAAAAAAAAAAAA chr11 39946525 + 18 0 168 NA
+AAAAAAAAAAAAAAAAAA chr12 110522275 - 18 1 8680 NA
+AAAAAAAAAAAAAAAAAA chr12 56223772 - 18 1 765 NA
+AAAAAAAAAAAAAAAAAA chr12 56298836 - 18 1 765 NA
+AAAAAAAAAAAAAAAAAA chr13 21261989 + 18 0 1196 NA
+AAAAAAAAAAAAAAAAAA chr13 24319036 - 18 0 37 NA
+</pre>
+
+<h2>Which tags are good tags?</h2>
+<p>
+In our final analysis we'll want to only use tags that meet the following criteria:
+</p>
+<ol>
+<li>
+<p>
+They are unique enough. We consider this to be true if there are no other exact matches, no other tags with only one base difference, and no more than 10 tags with two bases different.
+</p>
+</li>
+<li>
+<p>
+They are far enough apart. We consider this to be true if the neighboring site more than 50bp distant.
+</p>
+</li>
+<li>
+<p>
+There are no conflicting MmeI sequences that could cut into our library molecule as we try to generate it. We consider this to be true if MmeI sites are more than 50bp distant.
+</p>
+</li>
+</ol>
+<p>
+The data needed to evaluate the last two criteria are already recorded within the steps we've taken to generate the list of tags. The first requires matching the tag set against itself. This uses basically the same routine as we use later to match sequencing reads against the tags. Rather than use BLAST, we used a combination of unix commands and perl scripts to find all matches to the target list up to N bases distant for a given sequence. Because any tags that are unique with only 18bp of sequence should also be unique with 19bp, we only performed this for the shorter (18bp) tag variants.
+</p>
+<p>
+Because the later steps (eg. sorting) will break if the initial set is too large, we work with a small set at a time. The lines of the file are shuffled first to avoid subsets being highly enriched for repetitive sequences (because these have more matches they are more intensive). (This doesn't need to be done when matching sequencing reads.) If the system you're on doesn't have "shuf" or "sort --random-sort" commands, this can be done with this combination of command line perl and unix commands:
+</p>
+<p>
+cat ../tags_from_sites/CCGG_tags_18_withdist | perl -ne '$rand=rand(); print "$rand $_";' | sort -n | perl -ne '@data=split; print "@data[1..$#data]\n";' > CCGG_tags_18_withdist_shuffled
+</p>
+<p>
+This is done with Unix "head" and "tail" to pull out a piece of the target sequence at a time, eg:
+<pre>
+head -32000 reads_all | tail -2000 > reads_subset
+</pre>
+<p>
+Once a subset is made, it is matched against the target library with the following steps:
+</p>
+<ol>
+<li>
+<p>
+For each sequence in subset a set of all variants up to N mismatches is generated. For our purposes here we consider up to 2 mismatch variants, which we generated with the perl program:
+</p>
+<p>
+<A HREF=GenerateVariants_3MM.txt>GenerateVariants_3MM.pl</A>
+</p>
+<p>
+The output of this adds information regarding the number of mismatches added and what the base changes were, it should look like this:
+</p>
+<pre>
+CCCGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    EXACT   0
+ACCGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_A   1
+GCCGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_G   1
+TCCGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_T   1
+AACGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_A,1_C_A     2
+AGCGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_A,1_C_G     2
+ATCGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_A,1_C_T     2
+GACGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_G,1_C_A     2
+GGCGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_G,1_C_G     2
+GTCGAGTTTTTTCTCGTC      chr7 149406279 - 18 1 904 NA    0_C_G,1_C_T     2
+</pre>
+</li>
+<li>
+<p>
+Sort this list alphabetically using unix sort:
+</p>
+<pre>
+sort subset_variants > subset_variants_alphasort
+</pre>
+<p>
+Which should look like:
+</p>
+<pre>
+AAAAAAAAAAAAAAAAAA      chr5 8205497 - 18 1 564 NA      1_G_A,17_G_A    2
+AAAAAAAAAAAAAAAAAC      chr5 8205497 - 18 1 564 NA      1_G_A,17_G_C    2
+AAAAAAAAAAAAAAAAAG      chr5 8205497 - 18 1 564 NA      1_G_A   1
+AAAAAAAAAAAAAAAAAT      chr5 8205497 - 18 1 564 NA      1_G_A,17_G_T    2
+AAAAAAAAAAAAAAAACG      chr5 8205497 - 18 1 564 NA      1_G_A,16_A_C    2
+AAAAAAAAAAAAAAAAGG      chr5 8205497 - 18 1 564 NA      1_G_A,16_A_G    2
+AAAAAAAAAAAAAAAATG      chr5 8205497 - 18 1 564 NA      1_G_A,16_A_T    2
+AAAAAAAAAAAAAAACAG      chr5 8205497 - 18 1 564 NA      1_G_A,15_A_C    2
+AAAAAAAAAAAAAAAGAG      chr5 8205497 - 18 1 564 NA      1_G_A,15_A_G    2
+AAAAAAAAAAAAAAATAG      chr5 8205497 - 18 1 564 NA      1_G_A,15_A_T    2
+</pre>
+</li>
+<li>
+<p>
+Use unix "join" to find if any of the target sequences in the alphabetically sorted file match these, outputting to a new file. Because a later perl script expect columns to be in a certain order, we set the first file to the the target sequence data and the second to be subset variant data.
+</p>
+<pre>
+join CCGG_tags_18_withdist_alphasort subset_variants_alphasort > subset_variants_matches
+</pre>
+<p>
+The output of this should look like this:
+</p>
+<pre>
+AAAAAAAAAAAAAAAAAA chr10 62355617 + 18 0 1363 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr10 75423711 + 18 1 1459 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr11 107327557 - 18 1 593 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr11 118896086 - 18 0 73 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr11 39946525 + 18 0 168 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr12 110522275 - 18 1 8680 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr12 56223772 - 18 1 765 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr12 56298836 - 18 1 765 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr13 21261989 + 18 0 1196 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+AAAAAAAAAAAAAAAAAA chr13 24319036 - 18 0 37 NA chr5 8205497 - 18 1 564 NA 1_G_A,17_G_A 2
+</pre>
+</li>
+<li>
+<p>
+Now sort the matches by location and strand (chromosome, then position, then strand, then number of matches) so we can later count how many matches each potential tag has:
+</p>
+<pre>
+sort --key=9,9 --key=10n,10 --key=11,11 --key=17n,17 subset_variants_matches > subset_variants_matches_sorted
+</pre>
+<p>
+The output should look like this:
+</p>
+<pre>
+CAGCTAGAGTCAAGAGCT chr10 100119759 + 18 1 1432 50 chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100138221 - 18 1 796 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100312287 - 18 1 7020 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100360124 - 18 1 3976 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100396169 - 18 1 3381 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100434568 + 18 1 5611 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100569577 - 18 1 366 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100612095 - 18 1 11844 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100703979 + 18 1 7069 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+CAGCTAGAGTCAAGAGCT chr10 100711048 - 18 1 7069 NA chr1 6616737 - 18 1 1729 NA EXACT 0
+</pre>
+</li>
+<li>
+<p>
+Now we used this perl program to count how many exact, 1 mismatch and 2 mismatch matches were found:
+</p>
+<p>
+<A HREF=CountMatches.txt>CountMatches.pl</A>
+</p>
+<p>
+The output should look like this:
+</p>
+<pre>
+CAGCTAGAGTCAAGAGCT chr1 6616737 - 18 1 1729 NA 23555 7998 4368
+CTGGTGAGCCTTCCAATT chr1 16616107 - 18 1 3652 NA 1451 63 6
+TGCATTAACTCCGGAACT chr1 17767955 - 18 1 8 NA 1 0 0
+GTCTCTTGTGAGACTATG chr1 21863644 + 18 1 4974 NA 21479 10797 3895
+AAGCTGCCTATGTAACGG chr1 24768593 + 18 0 3470 NA 1 0 0
+TAGTATGTACACTATCAG chr1 25098866 + 18 0 491 NA 1 0 0
+CTCTGCTGGCAAGGTAGC chr1 30368211 - 18 1 156 NA 5485 2861 743
+GCACACCTACAGTCTCAG chr1 34050544 + 18 0 276 NA 1 0 0
+GAGCATGTGTTCTTCTTA chr1 35100530 - 18 1 561 NA 1210 6089 2081
+GAGGTATTGTGGGATCCT chr1 35221537 - 18 1 1145 NA 730 2964 16432
+</pre>
+</li>
+We combined all these actions in the perl shell script 
+Once this is done for all possible tags with both tag lengths (eg. 18 and 19) we can combine the sites, sort, and then determine which of the set meet our criteria for being "good tags".
+</ol>
+<p>
+In our work we have used a pair of shell scripts to submit these as a set of jobs to the orchestra computing cluster, <A HREF=MetaMatchFinder.txt>MetaMatchFinder.pl</A> submitted a job for each subset, and each job ran <A HREF=MatchFinder.txt>MatchFinder.pl</A> which performed all the above tasks to find the matches for that subset.
+</p>
+<p>
+Once all the matching has been done, files can be combined with "cat" and then sorted according to chromosome, position, and strand. For example:
+</p>
+<p>
+cat CCGG_tags_18_upto2MM_all_counts/CCGG_tags_18_upto2MM_*_*_counts | sort --key=2,2 --key=3n,3 --key=4,4 > CCGG_tags_18_withECstandard_withdist_upto2MM_combined
+</p>
+<p>
+Finally giving a file for each Mme I cut distance that should have the same number of lines as the starting files. The head for example may look like this:
+<p>
+<pre>
+CAATCTAATCGTGCAAGA chr1 3004692 - 18 1 1000 NA 1 0 0
+GCTTCCTTAATGCTGTCT chr1 3004692 + 18 1 363 NA 1 2 2
+CAGCTAGAGACAAGAGCT chr1 3005055 - 18 1 363 NA 4162 27404 5476
+TATGAACTAACTAGTACC chr1 3005055 + 18 1 711 NA 208 23521 8296
+GAGCATGTGTCCTTCTTA chr1 3005766 - 18 1 711 NA 5765 3270 811
+ATCCAGAAGATGTCCCAA chr1 3005766 + 18 1 936 NA 4718 3597 1116
+TGTAGTACAGTTTTAGGT chr1 3006702 - 18 1 936 NA 723 300 391
+TCTGGTGGAATCACTATG chr1 3006702 + 18 1 4173 NA 11 1113 240
+GCCTGCCCTCCTCAGAGT chr1 3010875 - 18 1 4173 NA 1 2 9
+GCAGGAGCCACCTTGGTT chr1 3010875 + 18 1 48 NA 14 168 405
+</pre>
+<p>
+Now we can use command line perl like the following to pick out which tag locations are "unique":
+</p>
+<p>
+cat CCGG_tags_18_withECstandard_withdist_upto2MM_combined | perl -ne '@data=split; if ($data[6] &gt 50 and ($data[7] eq "NA" or $data[7] &gt 50) and $data[8] == 1 and $data[9] == 0 and $data[10] &lt= 10) { print "@data\n"; }' &gt CCGG_tags_unique
+</p>
+<p>
+This should produce something like this:
+</p>
+<pre>
+CAATCTAATCGTGCAAGA chr1 3004692 - 18 1 1000 NA 1 0 0
+TGCCTGTCCCAGAAACCC chr1 3011026 - 18 1 68 NA 1 0 3
+GGGTGTGGAGTGCAGGGG chr1 3011026 + 18 1 67 NA 1 0 0
+GTCCTGGAGCCAAGGTGG chr1 3011093 - 18 1 67 NA 1 0 2
+AGATCACGTGGGAGACAA chr1 3011093 + 18 1 5408 NA 1 0 2
+CTTGTGATGCTACGTATG chr1 3016501 - 18 1 5408 NA 1 0 0
+AAGGCTGTAACCATAGGA chr1 3017735 - 18 0 1234 NA 1 0 0
+TTTGAGACACTGAGTTTC chr1 3017735 + 18 0 1390 NA 1 0 0
+TCAGGTGTGGGAGGGCTG chr1 3019125 - 18 1 1390 NA 1 0 6
+AATTTTCTAGACACAATC chr1 3024108 + 18 1 1806 NA 1 0 0
+</pre>
+</BODY>
+</HTML>
